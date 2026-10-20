@@ -29,9 +29,20 @@ struct BackupManifest: Codable, Sendable {
     let sourceProvider: String
     let targetProvider: String
     let sessions: [SessionRecord]
+    var stateDatabasePath: String? = nil
+    var catalogDatabasePath: String? = nil
 }
 
-enum MigratorError: LocalizedError {
+struct CompatibilityReport: Sendable {
+    var statePath: String = ""
+    var catalogPath: String? = nil
+    var missingRollouts = 0
+    var checks: [String] = []
+    var blockers: [String] = []
+    var canMigrate: Bool { blockers.isEmpty }
+}
+
+enum CompanionError: LocalizedError {
     case missingFile(String)
     case commandFailed(command: String, output: String)
     case invalidDatabaseOutput
@@ -40,6 +51,8 @@ enum MigratorError: LocalizedError {
     case targetProviderNotConfigured(String)
     case codexIsRunning
     case verificationFailed(String)
+    case unsupportedStorage(String)
+    case rollbackFailed(String)
 
     var errorDescription: String? {
         switch self {
@@ -59,6 +72,10 @@ enum MigratorError: LocalizedError {
             return "Codex is running. Quit Codex completely before migrating to prevent stale state from being written back."
         case .verificationFailed(let detail):
             return "Post-migration verification failed: \(detail)"
+        case .unsupportedStorage(let detail):
+            return "Migration unavailable: \(detail)"
+        case .rollbackFailed(let detail):
+            return "Restore failed. Keep the backup and restore it before reopening Codex. \(detail)"
         }
     }
 }
