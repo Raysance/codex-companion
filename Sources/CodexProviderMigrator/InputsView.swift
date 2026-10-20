@@ -4,6 +4,8 @@ import SwiftUI
 struct InputsView: View {
     @EnvironmentObject private var model: AppModel
     @ViewState private var search = ""
+    @ViewState private var showWords = false
+    @ViewState private var inputLimit = 200
     var body: some View {
         ScrollView {
             if let s = model.slice {
@@ -31,7 +33,8 @@ struct InputsView: View {
                     HStack(alignment: .top, spacing: 18) {
                         Panel(title: "Word frequency") {
                             HStack { Text("Term"); Spacer(); Text("Count / inputs") }.font(.caption).foregroundStyle(.secondary)
-                            ForEach(Array(s.terms.prefix(12))) { term in
+                            Button("All words (\(s.terms.count))") { showWords = true }.buttonStyle(.link)
+                        ForEach(Array(s.terms.prefix(12))) { term in
                                 HStack { Text(term.text); Spacer(); Text("\(term.count) / \(term.documents)").monospacedDigit() }
                             }
                         }
@@ -43,9 +46,9 @@ struct InputsView: View {
                     }
                     Panel(title: "Input history") {
                         TextField("Search your inputs", text: $search).textFieldStyle(.roundedBorder)
-                        let matching = s.prompts.filter { search.isEmpty || $0.text.localizedCaseInsensitiveContains(search) }
+                        let matching = s.prompts.reversed().filter { search.isEmpty || $0.text.localizedCaseInsensitiveContains(search) }
                         LazyVStack(alignment: .leading, spacing: 14) {
-                            ForEach(Array(matching.prefix(200))) { p in
+                            ForEach(Array(matching.prefix(inputLimit))) { p in
                                 DisclosureGroup {
                                     Text(p.text).frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled).padding(.top, 8)
                                 } label: {
@@ -57,10 +60,11 @@ struct InputsView: View {
                                 Divider()
                             }
                         }
-                        if matching.count > 200 { Text("Showing 200 of \(matching.count) inputs. Narrow the period or search.").font(.caption).foregroundStyle(.secondary) }
+                        if matching.count > inputLimit { Button("Show more (\(matching.count - inputLimit) remaining)") { inputLimit += 200 } }
                     }
                     Text("Context attachments and agent prompts are excluded. Common stopwords are removed from frequencies; characters are not prompt-token counts.").font(.caption).foregroundStyle(.secondary)
                 }.padding(24)
+                .sheet(isPresented: $showWords) { VocabularyView(terms: s.terms) }
             } else { EmptyActivityView() }
         }
     }
@@ -86,5 +90,22 @@ struct WordFlow: Layout {
             points.append(CGPoint(x: x, y: y)); x += size.width + spacing; height = max(height, size.height)
         }
         return (CGSize(width: width, height: y + height), points)
+    }
+}
+
+struct VocabularyView: View {
+    let terms: [InputTerm]
+    @Environment(\.dismiss) private var dismiss
+    @ViewState private var search = ""
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack { Text("Word frequency").font(.title3.weight(.semibold)); Spacer(); Button("Done") { dismiss() }.keyboardShortcut(.cancelAction) }
+            TextField("Search words", text: $search).textFieldStyle(.roundedBorder)
+            Table(terms.filter { search.isEmpty || $0.text.localizedCaseInsensitiveContains(search) }) {
+                TableColumn("Term", value: \.text).width(min: 200)
+                TableColumn("Occurrences") { term in Text(term.count.formatted()).monospacedDigit() }.width(110)
+                TableColumn("Inputs") { term in Text(term.documents.formatted()).monospacedDigit() }.width(90)
+            }
+        }.padding(24).frame(width: 560, height: 580)
     }
 }
