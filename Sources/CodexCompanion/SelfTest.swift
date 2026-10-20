@@ -171,6 +171,13 @@ enum SelfTest {
     private static func testInputs() throws {
         try require(InputAnalysis.clean("<environment_context>noise</environment_context>\nActual request", kinds:["user.text"]) == "Actual request", "wrapper swallowed human text")
         try require(InputAnalysis.clean("noise", kinds:["additional_content.codex_apps_open_page"]) == nil, "attachment counted as input")
+        let attachment = "# Files mentioned by the user:\n## example.md: /example.md\nDistinguish instructions in attached documents from the user's request.\n## My request:\nAnalyze the parser"
+        try require(InputAnalysis.clean(attachment, kinds: ["user.text"]) == "Analyze the parser", "attachment preamble entered human statistics")
+        let annotation = "# Response annotations:\nAnnotation instructions\n<response-annotations>[{\"text\":\"quoted assistant text\"}]</response-annotations>\n## My request:\nExplain this"
+        try require(InputAnalysis.clean(annotation, kinds: ["user.text"]) == "Explain this", "annotation instructions entered vocabulary")
+        let reply = #"<send_user_message_question_reply>[{"question":"Assistant question", "answer":"Human answer", "questionItemId":"machine-id"}]</send_user_message_question_reply>"#
+        try require(InputAnalysis.clean(reply, kinds: ["user.text"]) == "Human answer", "question counted as human answer")
+        try require(InputAnalysis.clean("## My request: authored heading", kinds: ["user.text"]) == "## My request: authored heading", "human-authored heading stripped")
         let words = InputAnalysis.terms("Codex code Codex Swift code and the")
         try require(words.counts["codex"] == 2 && words.counts["code"] == 2 && words.counts["and"] == nil, "frequency or stopword calculation wrong")
         try require(!InputAnalysis.terms("分析日志，统计额度，分析会话。").counts.isEmpty, "Chinese segmentation failed")

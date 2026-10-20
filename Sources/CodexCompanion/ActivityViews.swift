@@ -48,7 +48,12 @@ struct TokenActivityChart: View {
                 BarMark(x: .value("Day", day.date, unit: .day), y: .value("Tokens", day.tokens.output)).foregroundStyle(by: .value("Kind", "Output"))
             }
             .chartForegroundStyleScale(["Cached input": Color.indigo.opacity(0.35), "Other input": .indigo, "Output": .teal])
-            .chartYAxis { AxisMarks(position: .leading) }.frame(height: 210)
+            .chartYAxis {
+                AxisMarks(position: .leading) { value in
+                    AxisGridLine()
+                    AxisValueLabel { if let n = value.as(Double.self) { Text(Display.number(Int64(n))) } }
+                }
+            }.frame(height: 210)
         }
     }
 }
@@ -88,6 +93,10 @@ struct UsageView: View {
                 }
                 HStack {
                     Picker("Group", selection: $grouping) { Text("Chats").tag("Chats"); Text("Models").tag("Models") }.pickerStyle(.segmented).frame(width: 200)
+                    if grouping == "Chats" {
+                        Button("Inspect chat") { detail = s.sessions.first { $0.id == selected } }
+                            .disabled(!s.sessions.contains { $0.id == selected })
+                    }
                     Spacer()
                     TextField("Search", text: $search).textFieldStyle(.roundedBorder).frame(width: 240)
                 }

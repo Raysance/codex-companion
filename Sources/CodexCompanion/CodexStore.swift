@@ -11,7 +11,7 @@ struct CodexStore: Sendable {
                   let version = Int(url.deletingPathExtension().lastPathComponent.dropFirst(6)) else { return nil }
             return (version, url)
         }.sorted { $0.0 > $1.0 }
-        guard let url = candidates.first?.1 else { throw MigratorError.missingFile(storage.appending(path: "state_*.sqlite").path) }
+        guard let url = candidates.first?.1 else { throw CompanionError.missingFile(storage.appending(path: "state_*.sqlite").path) }
         return url
     }
 
@@ -23,7 +23,7 @@ struct CodexStore: Sendable {
             let columns = try SQLite.columns(state, "threads")
             let required: Set<String> = ["id", "rollout_path", "cwd", "title", "model_provider", "archived"]
             guard required.isSubset(of: columns) else {
-                throw MigratorError.unsupportedStorage("Unsupported threads schema: missing \(required.subtracting(columns).sorted().joined(separator: ", ")).")
+                throw CompanionError.unsupportedStorage("Unsupported threads schema: missing \(required.subtracting(columns).sorted().joined(separator: ", ")).")
             }
             report.checks.append("Session schema supported")
             let catalog = codexHome.appending(path: "sqlite/codex-dev.db")
@@ -32,7 +32,7 @@ struct CodexStore: Sendable {
                 let m = try SQLite.columns(catalog, "local_thread_catalog_metadata")
                 guard Set(["host_id", "thread_id", "model_provider", "observation_sequence"]).isSubset(of: c),
                       Set(["id", "catalog_revision"]).isSubset(of: m) else {
-                    throw MigratorError.unsupportedStorage("Unsupported local catalog schema. No changes were made.")
+                    throw CompanionError.unsupportedStorage("Unsupported local catalog schema. No changes were made.")
                 }
                 report.catalogPath = catalog.path
                 report.checks.append("Catalog writes restricted to host local")
@@ -49,14 +49,15 @@ struct CodexStore: Sendable {
         let db = try stateDatabase(codexHome: codexHome)
         let c = try SQLite.columns(db, "threads")
         guard Set(["id", "rollout_path", "cwd", "title", "model_provider", "archived"]).isSubset(of: c) else {
-            throw MigratorError.unsupportedStorage("The threads table is not supported.")
+            throw CompanionError.unsupportedStorage("The threads table is not supported.")
         }
         let model = c.contains("model") ? "model" : "NULL AS model"
         let updated = c.contains("updated_at_ms") ? "COALESCE(updated_at_ms,0)" : (c.contains("updated_at") ? "updated_at*1000" : "0")
         let rows = try SQLite.rows(db, "SELECT id, rollout_path, cwd, title, model_provider, \(model), archived, \(updated) AS updated FROM threads ORDER BY updated DESC;")
         return rows.compactMap { row in
             guard let id = row["id"] as? String, let path = row["rollout_path"] as? String else { return nil }
-            let title = (row["title"] as? String ?? "Untitled session").components(separatedBy: .newlines).joined(separator: " ")
+            let rawTitle = row["title"] as? String ?? "Untitled session"
+            let title = (InputAnalysis.clean(rawTitle, kinds: nil) ?? rawTitle).components(separatedBy: .newlines).joined(separator: " ")
             return SessionRecord(id: id, rolloutPath: path, cwd: row["cwd"] as? String ?? "", title: title.isEmpty ? "Untitled session" : title,
                                  provider: row["model_provider"] as? String ?? "", model: row["model"] as? String ?? "Unknown model",
                                  isArchived: (row["archived"] as? Int ?? 0) != 0, updatedAt: (row["updated"] as? NSNumber)?.int64Value ?? 0)
@@ -74,53 +75,53 @@ struct CodexStore: Sendable {
     }
 
     static func migrate(_ request: MigrationRequest, requireCodexStopped: Bool = true) throws -> MigrationResult {
-        guard !request.sessions.isEmpty else { throw MigratorError.noSessionsSelected }
-        guard request.sourceProvider != request.targetProvider else { throw MigratorError.sameProvider }
-        if requireCodexStopped && isCodexRunning() { throw MigratorError.codexIsRunning }
+        guard !request.sessions.isEmpty else { throw CompanionError.noSessionsSelected }
+        guard request.sourceProvider != request.targetProvider else { throw CompanionError.sameProvider }
+        if requireCodexStopped && isCodexRunning() { throw CompanionError.codexIsRunning }
         guard try configuredProviders(codexHome: request.codexHome).contains(request.targetProvider) else {
-            throw MigratorError.targetProviderNotConfigured(request.targetProvider)
+            throw CompanionError.targetProviderNotConfigured(request.targetProvider)
         }
         let report = compatibility(codexHome: request.codexHome)
-        guard report.canMigrate else { throw MigratorError.unsupportedStorage(report.blockers.joined(separator: " ")) }
+        guard report.canMigrate else { throw CompanionError.unsupportedStorage(report.blockers.joined(separator: " ")) }
         let current = Dictionary(uniqueKeysWithValues: try scan(codexHome: request.codexHome).map { ($0.id, $0) })
         guard Set(request.sessions.map(\.id)).count == request.sessions.count else {
-            throw MigratorError.unsupportedStorage("Duplicate selection.")
+            throw CompanionError.unsupportedStorage("Duplicate selection.")
         }
         for session in request.sessions {
             guard session.id.range(of: #"^[A-Za-z0-9_-]+$"#, options: .regularExpression) != nil else {
-                throw MigratorError.unsupportedStorage("Invalid session identifier.")
+                throw CompanionError.unsupportedStorage("Invalid session identifier.")
             }
             guard let live = current[session.id], live.provider == request.sourceProvider,
                   live.rolloutPath == session.rolloutPath else {
-                throw MigratorError.unsupportedStorage("Session state changed. Scan again.")
+                throw CompanionError.unsupportedStorage("Session state changed. Scan again.")
             }
             let path = URL(fileURLWithPath: session.rolloutPath).resolvingSymlinksInPath().path
             let allowed = ["sessions", "archived_sessions"].contains { name in
                 path.hasPrefix(request.codexHome.appending(path: name).resolvingSymlinksInPath().path + "/")
             }
-            guard allowed else { throw MigratorError.unsupportedStorage("A selected log is outside this Codex home.") }
-            guard fm.fileExists(atPath: path) else { throw MigratorError.missingFile(path) }
+            guard allowed else { throw CompanionError.unsupportedStorage("A selected log is outside this Codex home.") }
+            guard fm.fileExists(atPath: path) else { throw CompanionError.missingFile(path) }
         }
         let backup = try createBackup(request, report)
         var count = 0
         do {
-            if requireCodexStopped && isCodexRunning() { throw MigratorError.codexIsRunning }
+            if requireCodexStopped && isCodexRunning() { throw CompanionError.codexIsRunning }
             for s in request.sessions {
                 let url = URL(fileURLWithPath: s.rolloutPath)
                 let result = try providerFieldReplacements(in: String(contentsOf: url, encoding: .utf8), source: request.sourceProvider, target: request.targetProvider)
                 if result.count > 0 { try result.text.write(to: url, atomically: true, encoding: .utf8) }
                 count += result.count
             }
-            if requireCodexStopped && isCodexRunning() { throw MigratorError.codexIsRunning }
+            if requireCodexStopped && isCodexRunning() { throw CompanionError.codexIsRunning }
             try updateDatabases(request, report)
             try verify(request, report)
         } catch {
             let original = error
             if requireCodexStopped && isCodexRunning() {
-                throw MigratorError.rollbackFailed("Codex started during migration. Quit it before restoring: \(backup.path)")
+                throw CompanionError.rollbackFailed("Codex started during migration. Quit it before restoring: \(backup.path)")
             }
             do { try restoreBackup(backup, codexHome: request.codexHome) }
-            catch { throw MigratorError.rollbackFailed("Backup: \(backup.path). \(error.localizedDescription)") }
+            catch { throw CompanionError.rollbackFailed("Backup: \(backup.path). \(error.localizedDescription)") }
             throw original
         }
         return MigrationResult(migratedCount: request.sessions.count, jsonReplacementCount: count, backupDirectory: backup)
@@ -132,7 +133,7 @@ struct CodexStore: Sendable {
         let lines = try input.components(separatedBy: "\n").map { line -> String in
             if line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return line }
             guard let data = line.data(using: .utf8), var record = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let type = record["type"] as? String else { throw MigratorError.verificationFailed("Invalid JSONL record.") }
+                  let type = record["type"] as? String else { throw CompanionError.verificationFailed("Invalid JSONL record.") }
             guard var payload = record["payload"] as? [String: Any] else { return line }
             var changed = 0
             if type == "session_meta" || type == "turn_context" {
@@ -141,7 +142,7 @@ struct CodexStore: Sendable {
             if type == "event_msg", payload["type"] as? String != "thread_settings_applied",
                let settings = payload["thread_settings"] as? [String: Any],
                ["model_provider", "model_provider_id"].contains(where: { settings[$0] as? String == source }) {
-                throw MigratorError.unsupportedStorage("Unknown provider-settings event. No metadata format was assumed.")
+                throw CompanionError.unsupportedStorage("Unknown provider-settings event. No metadata format was assumed.")
             }
             if type == "event_msg", payload["type"] as? String == "thread_settings_applied",
                var settings = payload["thread_settings"] as? [String: Any] {
@@ -210,20 +211,20 @@ struct CodexStore: Sendable {
     private static func verify(_ request: MigrationRequest, _ report: CompatibilityReport) throws {
         let ids = request.sessions.map { SQLite.quote($0.id) }.joined(separator: ",")
         let rows = try SQLite.rows(URL(fileURLWithPath: report.statePath), "SELECT COUNT(*) AS count FROM threads WHERE id IN (\(ids)) AND model_provider=\(SQLite.quote(request.targetProvider));")
-        guard rows.first?["count"] as? Int == request.sessions.count else { throw MigratorError.verificationFailed("Session rows did not match the selection.") }
+        guard rows.first?["count"] as? Int == request.sessions.count else { throw CompanionError.verificationFailed("Session rows did not match the selection.") }
         if let path = report.catalogPath {
             let stale = try SQLite.rows(URL(fileURLWithPath: path), "SELECT COUNT(*) AS count FROM local_thread_catalog WHERE host_id='local' AND thread_id IN (\(ids)) AND COALESCE(model_provider,'')!=\(SQLite.quote(request.targetProvider));")
-            guard stale.first?["count"] as? Int == 0 else { throw MigratorError.verificationFailed("Local catalog provider mismatch.") }
+            guard stale.first?["count"] as? Int == 0 else { throw CompanionError.verificationFailed("Local catalog provider mismatch.") }
         }
         for s in request.sessions {
             let text = try String(contentsOfFile: s.rolloutPath, encoding: .utf8)
             guard try providerFieldReplacements(in: text, source: request.sourceProvider, target: request.targetProvider).count == 0 else {
-                throw MigratorError.verificationFailed("Old metadata remained in a selected log.")
+                throw CompanionError.verificationFailed("Old metadata remained in a selected log.")
             }
         }
         for path in [Optional(report.statePath), report.catalogPath].compactMap({ $0 }) {
             guard try SQLite.text(URL(fileURLWithPath: path), "PRAGMA integrity_check;").trimmingCharacters(in: .whitespacesAndNewlines) == "ok" else {
-                throw MigratorError.verificationFailed("Database integrity check failed.")
+                throw CompanionError.verificationFailed("Database integrity check failed.")
             }
         }
     }

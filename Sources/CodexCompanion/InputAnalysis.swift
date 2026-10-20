@@ -8,6 +8,20 @@ struct InputAnalysis {
     static func clean(_ text: String, kinds: [String]?) -> String? {
         if let kinds, !kinds.isEmpty, !kinds.contains(where: { $0.hasPrefix("user.") }) { return nil }
         var value = text
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if ["# Files mentioned by the user:", "# Response annotations:"].contains(where: trimmed.hasPrefix),
+           let marker = value.range(of: "## My request:") {
+            value = String(value[marker.upperBound...])
+        }
+        // Answer wrappers repeat the assistant's question and machine IDs; count only the human answer.
+        if let regex = try? NSRegularExpression(pattern: "(?s)<send_user_message_question_reply>(.*?)</send_user_message_question_reply>") {
+            for match in regex.matches(in: value, range: NSRange(value.startIndex..., in: value)).reversed() {
+                guard let inner = Range(match.range(at: 1), in: value), let whole = Range(match.range, in: value),
+                      let items = try? JSONSerialization.jsonObject(with: Data(value[inner].utf8)) as? [[String: Any]] else { continue }
+                let answers = items.compactMap { $0["answer"] as? String }.joined(separator: "\n")
+                value.replaceSubrange(whole, with: answers)
+            }
+        }
         let contextTags = ["environment_context", "external_codex_apps_open_page", "codex_internal_context", "in-app-browser-context", "response-annotations", "recommended_plugins"]
         for tag in contextTags {
             value = value.replacingOccurrences(of: "(?s)<\(tag)(?:\\s[^>]*)?>.*?</\(tag)>", with: "", options: .regularExpression)

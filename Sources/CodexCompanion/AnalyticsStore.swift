@@ -10,7 +10,7 @@ struct AnalyticsStore {
     static func scan(home: URL, includeBackups: Bool = false) throws -> AnalyticsReport {
         var report = AnalyticsReport()
         let fm = FileManager.default
-        guard fm.fileExists(atPath: home.path) else { throw MigratorError.missingFile(home.path) }
+        guard fm.fileExists(atPath: home.path) else { throw CompanionError.missingFile(home.path) }
         report.sessions = (try? CodexStore.scan(codexHome: home)) ?? []
         report.indexedMissingLogs = report.sessions.filter { !fm.fileExists(atPath: $0.rolloutPath) }.count
         var files = Set<URL>()

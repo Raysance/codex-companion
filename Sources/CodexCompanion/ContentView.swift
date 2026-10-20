@@ -118,7 +118,7 @@ struct MetricCard: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack { Text(title).font(.callout).foregroundStyle(.secondary); Spacer(); if !icon.isEmpty { Image(systemName: icon).foregroundStyle(.secondary) } }
             Text(value).font(.system(size: 30, weight: .semibold, design: .rounded)).monospacedDigit().minimumScaleFactor(0.6).lineLimit(1)
-            Text(detail.isEmpty ? " " : detail).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+            Text(detail.isEmpty ? " " : detail).font(.caption).foregroundStyle(.secondary).lineLimit(2).frame(height: 30, alignment: .topLeading)
         }.padding(18).frame(maxWidth: .infinity, alignment: .leading).background(.background, in: RoundedRectangle(cornerRadius: 12))
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(.primary.opacity(0.06)))
     }

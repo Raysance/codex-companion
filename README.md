@@ -1,6 +1,6 @@
 # Codex Companion
 
-A native macOS companion for local Codex history: token usage, quota timelines, input vocabulary, and provider migration. Built from Codex Provider Migrator; the repository, executable, and bundle identifier remain compatible.
+A native macOS companion for local Codex history: token usage, quota timelines, input vocabulary, and provider migration. A single app and Swift package; provider migration is an integrated tool.
 
 ## Activity
 
@@ -35,7 +35,7 @@ Backups are written beneath `CODEX_HOME/backup/provider-migrator-<timestamp>-<id
 - System SQLite, SwiftUI, Charts, NaturalLanguage, CryptoKit; no third-party packages
 
 ```bash
-swift run CodexProviderMigrator --self-test
+swift run CodexCompanion --self-test
 ./scripts/build-app.sh
 ```
 
@@ -44,8 +44,8 @@ The signed-for-local-use app and ZIP are written to `dist/`. The build uses the 
 Read-only audit, suitable for scripts:
 
 ```bash
-swift run CodexProviderMigrator --audit
-swift run CodexProviderMigrator --audit --home /path/to/codex-home --include-backups
+swift run CodexCompanion --audit
+swift run CodexCompanion --audit --home /path/to/codex-home --include-backups
 ```
 
 The audit emits aggregate JSON without input text. Exit codes: `0` supported migration schema, `2` migration unsupported (analytics may still be available), `1` read/argument failure.
@@ -53,7 +53,7 @@ The audit emits aggregate JSON without input text. Exit codes: `0` supported mig
 Synthetic interface preview:
 
 ```bash
-swift run CodexProviderMigrator --demo
+swift run CodexCompanion --demo
 ```
 
 Demo mode never reads the real Codex home and cannot migrate.

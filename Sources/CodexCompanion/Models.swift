@@ -42,7 +42,7 @@ struct CompatibilityReport: Sendable {
     var canMigrate: Bool { blockers.isEmpty }
 }
 
-enum MigratorError: LocalizedError {
+enum CompanionError: LocalizedError {
     case missingFile(String)
     case commandFailed(command: String, output: String)
     case invalidDatabaseOutput

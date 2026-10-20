@@ -8,5 +8,5 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: swift --version
-      - run: swift run CodexProviderMigrator --self-test
+      - run: swift run CodexCompanion --self-test
       - run: swift build -c release

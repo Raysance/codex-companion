@@ -11,7 +11,7 @@ enum SQLite {
         let output = try query(database, ["-readonly", "-json", "-bail", "-cmd", ".timeout 5000", database.path, sql])
         if output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return [] }
         guard let rows = try JSONSerialization.jsonObject(with: Data(output.utf8)) as? [[String: Any]] else {
-            throw MigratorError.invalidDatabaseOutput
+            throw CompanionError.invalidDatabaseOutput
         }
         return rows
     }
@@ -33,14 +33,14 @@ enum SQLite {
                 let attrs = try fm.attributesOfItem(atPath: database.path)
                 let wal = database.path + "-wal"
                 if fm.fileExists(atPath: wal), (try fm.attributesOfItem(atPath: wal)[.size] as? NSNumber)?.int64Value != 0 {
-                    throw MigratorError.unsupportedStorage("Pending WAL could not be read. Refresh after Codex finishes writing.")
+                    throw CompanionError.unsupportedStorage("Pending WAL could not be read. Refresh after Codex finishes writing.")
                 }
                 return ((attrs[.size] as? NSNumber)?.uint64Value ?? 0, attrs[.modificationDate] as? Date ?? .distantPast)
             }
             let before = try stamp()
             let uri = database.absoluteString + "?immutable=1"
             let result = try process("/usr/bin/sqlite3", arguments.map { $0 == database.path ? uri : $0 })
-            guard try stamp() == before else { throw MigratorError.unsupportedStorage("Storage changed while reading. Refresh and try again.") }
+            guard try stamp() == before else { throw CompanionError.unsupportedStorage("Storage changed while reading. Refresh and try again.") }
             return result
         }
     }
@@ -56,7 +56,7 @@ enum SQLite {
         p.waitUntilExit()
         let text = String(decoding: data, as: UTF8.self)
         guard p.terminationStatus == 0 else {
-            throw MigratorError.commandFailed(command: URL(fileURLWithPath: executable).lastPathComponent + " " + (args.first(where: { $0.hasSuffix(".sqlite") || $0.hasSuffix(".db") }) ?? ""), output: text)
+            throw CompanionError.commandFailed(command: URL(fileURLWithPath: executable).lastPathComponent + " " + (args.first(where: { $0.hasSuffix(".sqlite") || $0.hasSuffix(".db") }) ?? ""), output: text)
         }
         return text
     }
@@ -100,7 +100,7 @@ enum CodexConfig {
                             if let r = Range(m.range(at: n), in: line) { providers.insert(String(line[r])) }
                         }
                     } else if line.hasPrefix("[model_providers.") {
-                        throw MigratorError.unsupportedStorage("Unsupported provider declaration in config.toml.")
+                        throw CompanionError.unsupportedStorage("Unsupported provider declaration in config.toml.")
                     }
                 } else if atRoot && line.range(of: #"^sqlite_home\s*="#, options: .regularExpression) != nil {
                     let value = line.split(separator: "=", maxSplits: 1).last!.trimmingCharacters(in: .whitespaces)
@@ -108,13 +108,13 @@ enum CodexConfig {
                     let regex = try NSRegularExpression(pattern: pattern)
                     guard let m = regex.firstMatch(in: value, range: NSRange(value.startIndex..., in: value)),
                           let r = Range(m.range(at: 1), in: value) else {
-                        throw MigratorError.unsupportedStorage("Unsupported sqlite_home value in config.toml.")
+                        throw CompanionError.unsupportedStorage("Unsupported sqlite_home value in config.toml.")
                     }
                     let literal = String(value[r])
                     let path: String
                     if literal.hasPrefix("\"") {
                         guard let decoded = try? JSONDecoder().decode(String.self, from: Data(literal.utf8)) else {
-                            throw MigratorError.unsupportedStorage("Cannot decode sqlite_home.")
+                            throw CompanionError.unsupportedStorage("Cannot decode sqlite_home.")
                         }
                         path = decoded
                     } else { path = String(literal.dropFirst().dropLast()) }

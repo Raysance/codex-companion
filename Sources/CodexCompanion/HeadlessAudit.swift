@@ -6,7 +6,7 @@ enum HeadlessAudit {
             var path = ProcessInfo.processInfo.environment["CODEX_HOME"] ?? NSString(string: "~/.codex").expandingTildeInPath
             if let index = arguments.firstIndex(of: "--home") {
                 guard arguments.indices.contains(index + 1), !arguments[index + 1].hasPrefix("--") else {
-                    throw MigratorError.unsupportedStorage("--home requires a folder path")
+                    throw CompanionError.unsupportedStorage("--home requires a folder path")
                 }
                 path = NSString(string: arguments[index + 1]).expandingTildeInPath
             }

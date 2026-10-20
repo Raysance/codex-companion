@@ -2,7 +2,7 @@ import SwiftUI
 import Darwin
 
 @main
-struct CodexProviderMigratorApp: App {
+struct CodexCompanionApp: App {
     @StateObject private var model = AppModel()
 
     init() {
