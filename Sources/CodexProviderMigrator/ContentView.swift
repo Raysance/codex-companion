@@ -1,239 +1,143 @@
 import SwiftUI
 
-struct ContentView: View {
-    @EnvironmentObject private var model: AppModel
+// Use the stable property wrapper on SDKs that also expose the new State macro.
+typealias ViewState<Value> = SwiftUI.State<Value>
 
-    var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider()
-            configuration
-            Divider()
-            sessionList
-            Divider()
-            footer
+private enum Page: String, CaseIterable, Identifiable {
+    case overview = "Overview", usage = "Token usage", quota = "Quota", inputs = "Your inputs", migration = "Provider migration", storage = "Storage"
+    var id: String { rawValue }
+    var icon: String {
+        switch self {
+        case .overview: "square.grid.2x2"
+        case .usage: "chart.bar.xaxis"
+        case .quota: "gauge.with.dots.needle.50percent"
+        case .inputs: "text.bubble"
+        case .migration: "arrow.triangle.2.circlepath"
+        case .storage: "externaldrive"
         }
-        .frame(minWidth: 920, minHeight: 640)
-        .background(Color(nsColor: .windowBackgroundColor))
-        .task { model.scan() }
-        .alert("Confirm Batch Migration", isPresented: $model.showConfirmation) {
-            Button("Cancel", role: .cancel) {}
-            Button("Back Up and Migrate") { model.migrate() }
-        } message: {
-            Text("This will migrate \(model.selectedSessions.count) sessions from \(model.sourceProvider) to \(model.targetProvider), updating their JSONL files and both SQLite state databases.")
-        }
-        .alert("Operation Failed", isPresented: Binding(
-            get: { model.errorMessage != nil },
-            set: { if !$0 { model.errorMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) { model.errorMessage = nil }
-        } message: {
-            Text(model.errorMessage ?? "Unknown error")
-        }
-    }
-
-    private var header: some View {
-        HStack(spacing: 14) {
-            Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
-                .font(.system(size: 34))
-                .foregroundStyle(.blue)
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Codex Provider Migrator")
-                    .font(.title2.weight(.semibold))
-                Text("Repair historical sessions after switching model providers")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            if model.isWorking {
-                ProgressView().controlSize(.small)
-            }
-            Button {
-                model.scan()
-            } label: {
-                Label("Rescan", systemImage: "arrow.clockwise")
-            }
-            .disabled(model.isWorking)
-        }
-        .padding(20)
-    }
-
-    private var configuration: some View {
-        VStack(spacing: 14) {
-            HStack(spacing: 10) {
-                Text("Codex Home")
-                    .frame(width: 92, alignment: .leading)
-                TextField("~/.codex", text: $model.codexHomePath)
-                    .textFieldStyle(.roundedBorder)
-                Button("Choose…") { model.chooseCodexHome() }
-            }
-
-            HStack(spacing: 10) {
-                Text("Migration")
-                    .frame(width: 92, alignment: .leading)
-                Picker("Source", selection: $model.sourceProvider) {
-                    ForEach(model.sourceProviders, id: \.self) { Text($0).tag($0) }
-                }
-                .labelsHidden()
-                .frame(width: 180)
-                Image(systemName: "arrow.right")
-                    .foregroundStyle(.secondary)
-                TextField("Target provider", text: $model.targetProvider)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 180)
-                if model.configuredProviders.contains(model.targetProvider) {
-                    Label("Configured", systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                        .font(.callout)
-                } else {
-                    Label("Missing from config.toml", systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                        .font(.callout)
-                }
-                Spacer()
-            }
-
-            HStack(spacing: 10) {
-                Text("Project Filter")
-                    .frame(width: 92, alignment: .leading)
-                TextField("Leave blank for all projects; selected folders use an exact match", text: $model.projectFilter)
-                    .textFieldStyle(.roundedBorder)
-                Button("Choose…") { model.chooseProject() }
-                if !model.projectFilter.isEmpty {
-                    Button("Clear") { model.projectFilter = "" }
-                }
-            }
-
-            if model.codexRunning {
-                HStack {
-                    Label("Codex is running. Scanning is available, but Codex must be fully quit before migration.", systemImage: "exclamationmark.octagon.fill")
-                    Spacer()
-                    Button("Check Again") {
-                        model.codexRunning = CodexStore.isCodexRunning()
-                    }
-                }
-                .foregroundStyle(.red)
-                .padding(10)
-                .background(.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 7))
-            }
-        }
-        .padding(20)
-    }
-
-    private var sessionList: some View {
-        VStack(spacing: 10) {
-            HStack {
-                TextField("Search title, directory, or session ID", text: $model.searchText)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: 360)
-                Text("Showing \(model.filteredSessions.count)")
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Button("Select All Results") { model.selectAllFiltered() }
-                Button("Clear Selection") { model.clearSelection() }
-                    .disabled(model.selectedIDs.isEmpty)
-            }
-
-            List(model.filteredSessions) { session in
-                SessionRow(
-                    session: session,
-                    isSelected: Binding(
-                        get: { model.selectedIDs.contains(session.id) },
-                        set: { selected in
-                            if selected { model.selectedIDs.insert(session.id) }
-                            else { model.selectedIDs.remove(session.id) }
-                        }
-                    )
-                )
-            }
-            .listStyle(.inset)
-            .overlay {
-                if model.filteredSessions.isEmpty && !model.isWorking {
-                    ContentUnavailableView(
-                        "No Matching Sessions",
-                        systemImage: "text.magnifyingglass",
-                        description: Text("Adjust the provider or project filters.")
-                    )
-                }
-            }
-        }
-        .padding(20)
-        .frame(maxHeight: .infinity)
-    }
-
-    private var footer: some View {
-        HStack(spacing: 12) {
-            Image(systemName: model.errorMessage == nil ? "info.circle" : "xmark.circle.fill")
-                .foregroundStyle(model.errorMessage == nil ? Color.secondary : Color.red)
-            Text(model.statusMessage)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-            if model.lastBackupDirectory != nil {
-                Button("Show Latest Backup") { model.revealBackup() }
-                    .buttonStyle(.link)
-            }
-            Spacer()
-            Text("\(model.selectedSessions.count) selected")
-                .foregroundStyle(.secondary)
-            Button {
-                model.codexRunning = CodexStore.isCodexRunning()
-                if model.canMigrate { model.showConfirmation = true }
-            } label: {
-                Label("Back Up and Migrate", systemImage: "externaldrive.badge.checkmark")
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(!model.canMigrate)
-            .help(migrationHelp)
-        }
-        .padding(16)
-    }
-
-    private var migrationHelp: String {
-        if model.codexRunning { return "Quit Codex completely first" }
-        if !model.configuredProviders.contains(model.targetProvider) { return "Target provider is not configured" }
-        if model.selectedSessions.isEmpty { return "Select one or more sessions" }
-        return "Create a full backup, then migrate"
     }
 }
 
-private struct SessionRow: View {
-    let session: SessionRecord
-    @Binding var isSelected: Bool
+struct ContentView: View {
+    @EnvironmentObject private var model: AppModel
+    @ViewState private var page: Page? = .overview
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Toggle("", isOn: $isSelected)
-                .labelsHidden()
-            VStack(alignment: .leading, spacing: 5) {
-                HStack {
-                    Text(session.title)
-                        .font(.body.weight(.medium))
-                        .lineLimit(1)
-                    if session.isArchived {
-                        Text("Archived")
-                            .font(.caption)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
+        NavigationSplitView {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 10) {
+                    Image(systemName: "command.square.fill").font(.title).foregroundStyle(.indigo)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Codex").font(.title3.weight(.semibold))
+                        Text("Companion").font(.caption).foregroundStyle(.secondary)
                     }
-                }
-                Text(session.cwd)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                HStack(spacing: 12) {
-                    Label(session.provider, systemImage: "network")
-                    Label(session.model, systemImage: "cpu")
-                    Text(session.id)
-                }
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
+                }.padding(20)
+                List(selection: $page) {
+                    Section("Activity") {
+                        ForEach([Page.overview, .usage, .quota, .inputs]) { p in Label(p.rawValue, systemImage: p.icon).tag(p) }
+                    }
+                    Section("Tools") {
+                        ForEach([Page.migration, .storage]) { p in Label(p.rawValue, systemImage: p.icon).tag(p) }
+                    }
+                }.listStyle(.sidebar)
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("On this Mac", systemImage: "lock.shield").font(.caption.weight(.medium))
+                    Text(model.statusMessage).font(.caption2).foregroundStyle(.secondary).lineLimit(3)
+                }.padding(16)
             }
-            Spacer()
+            .navigationSplitViewColumnWidth(min: 190, ideal: 210, max: 240)
+        } detail: {
+            VStack(spacing: 0) {
+                HStack(alignment: .center) {
+                    Text((page ?? .overview).rawValue).font(.title2.weight(.semibold))
+                    Spacer()
+                    if model.isWorking || model.isSlicing { ProgressView().controlSize(.small) }
+                    Button { model.scan() } label: { Label("Refresh", systemImage: "arrow.clockwise") }.disabled(model.isWorking)
+                }.padding(.horizontal, 24).padding(.vertical, 18)
+                if [.overview, .usage, .quota, .inputs].contains(page ?? .overview) { filters }
+                Divider()
+                Group {
+                    switch page ?? .overview {
+                    case .overview: OverviewView()
+                    case .usage: UsageView()
+                    case .quota: QuotaView()
+                    case .inputs: InputsView()
+                    case .migration: MigrationView()
+                    case .storage: StorageView()
+                    }
+                }.frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .background(Color(nsColor: .windowBackgroundColor))
         }
-        .padding(.vertical, 5)
-        .contentShape(Rectangle())
-        .onTapGesture { isSelected.toggle() }
+        .frame(minWidth: 1080, minHeight: 740)
+        .task { model.scan() }
+        .onChange(of: model.range) { _, _ in model.refreshSlice() }
+        .onChange(of: model.customStart) { _, _ in model.refreshSlice() }
+        .onChange(of: model.customEnd) { _, _ in model.refreshSlice() }
+        .onChange(of: model.analyticsProject) { _, _ in model.refreshSlice() }
+        .onChange(of: model.quotaScope) { _, _ in model.refreshSlice() }
+        .alert("Operation stopped", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
+            Button("OK", role: .cancel) { model.errorMessage = nil }
+        } message: { Text(model.errorMessage ?? "") }
+        .alert("Migrate \(model.selectedSessions.count) sessions?", isPresented: $model.showConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Back up and migrate") { model.migrate() }
+        } message: { Text("\(model.sourceProvider) → \(model.targetProvider). A backup is created before local metadata changes. Model and account settings stay as configured.") }
     }
+
+    private var filters: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 14) {
+                Picker("Period", selection: $model.range) { ForEach(AnalyticsRange.allCases) { Text($0.rawValue).tag($0) } }
+                    .pickerStyle(.segmented).frame(maxWidth: 470)
+                if page != .quota {
+                    Picker("Project", selection: $model.analyticsProject) {
+                        Text("All projects").tag("")
+                        ForEach(model.projects, id: \.self) { Text(URL(fileURLWithPath: $0).lastPathComponent).tag($0) }
+                    }.labelsHidden().frame(maxWidth: 210)
+                }
+                Spacer(minLength: 0)
+                if page == .usage { Button("Export CSV") { model.exportRequests() }.disabled(model.slice == nil || model.isWorking || model.isSlicing) }
+            }
+            if model.range == .custom {
+                HStack {
+                    DatePicker("From", selection: $model.customStart, displayedComponents: .date)
+                    DatePicker("To", selection: $model.customEnd, displayedComponents: .date)
+                }.fixedSize()
+            }
+        }.padding(.horizontal, 24).padding(.bottom, 16)
+    }
+}
+
+struct MetricCard: View {
+    let title: String
+    let value: String
+    var detail: String = ""
+    var icon: String = ""
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack { Text(title).font(.callout).foregroundStyle(.secondary); Spacer(); if !icon.isEmpty { Image(systemName: icon).foregroundStyle(.secondary) } }
+            Text(value).font(.system(size: 30, weight: .semibold, design: .rounded)).monospacedDigit().minimumScaleFactor(0.6).lineLimit(1)
+            Text(detail.isEmpty ? " " : detail).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+        }.padding(18).frame(maxWidth: .infinity, alignment: .leading).background(.background, in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(.primary.opacity(0.06)))
+    }
+}
+
+struct Panel<Content: View>: View {
+    let title: String
+    @ViewBuilder var content: Content
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) { Text(title).font(.headline); content }
+            .padding(20).frame(maxWidth: .infinity, alignment: .leading)
+            .background(.background, in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(.primary.opacity(0.06)))
+    }
+}
+
+enum Display {
+    static func number(_ n: Int64) -> String { n.formatted(.number.notation(.compactName).precision(.fractionLength(0...2))) }
+    static func percent(_ n: Double) -> String { n.formatted(.number.precision(.fractionLength(0...1))) + "%" }
+    static func ratio(_ n: Double) -> String { percent(n * 100) }
+    static func date(_ d: Date) -> String { d.formatted(date: .abbreviated, time: .shortened) }
 }
